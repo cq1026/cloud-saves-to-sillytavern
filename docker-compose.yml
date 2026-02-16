@@ -13,11 +13,8 @@ services:
     
     # 卷挂载
     volumes:
-      # SillyTavern 数据目录（只读挂载，保护源数据）
-      - /var/sillytavern/data:/data:ro
-      
-      # SSH 密钥（用于 GitHub 认证，只读）
-      - ~/.ssh:/root/.ssh:ro
+      # SillyTavern 数据目录（读写权限，恢复时需要写入）
+      - ${ST_DATA_PATH}:/data
       
       # 日志持久化
       - ./logs:/app/logs

@@ -51,10 +51,35 @@ class BackupManager:
                 origin.set_url(self.remote_url)
                 logger.info(f"已更新远程仓库 URL: {self.remote_url}")
             
+            # 配置 GitHub Token 认证（如果使用 HTTPS）
+            self._setup_git_auth()
+            
             return True
         except Exception as e:
             logger.error(f"初始化仓库失败: {e}")
             return False
+    
+    def _setup_git_auth(self):
+        """配置 Git 认证（支持 HTTPS + Token）"""
+        github_token = self.config.get('github_token')
+        
+        # 如果是 HTTPS URL 且有 Token，配置认证
+        if self.remote_url.startswith('https://') and github_token:
+            # 将 Token 注入到 URL 中
+            auth_url = self.remote_url.replace(
+                'https://',
+                f'https://oauth2:{github_token}@'
+            )
+            
+            # 更新远程 URL（使用带 Token 的 URL）
+            origin = self.repo.remote('origin')
+            origin.set_url(auth_url)
+            logger.info("已配置 GitHub Token 认证")
+        elif self.remote_url.startswith('git@'):
+            # SSH 方式，不需要特殊配置
+            logger.info("使用 SSH 密钥认证")
+        else:
+            logger.warning("未检测到 GitHub Token，如果使用 HTTPS 可能需要手动认证")
     
     def sync_files(self):
         """

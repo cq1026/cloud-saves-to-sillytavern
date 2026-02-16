@@ -49,6 +49,11 @@ def load_config() -> Dict[str, Any]:
         config.get('github_remote_url', '')
     )
     
+    config['github_token'] = os.getenv(
+        'GITHUB_TOKEN',
+        config.get('github_token', '')
+    )
+    
     config['backup_time'] = os.getenv(
         'BACKUP_TIME',
         config.get('backup_time', '03:00')
