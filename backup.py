@@ -20,10 +20,23 @@ logger = logging.getLogger(__name__)
 class BackupManager:
     """备份管理器"""
     
-    def __init__(self, config: Dict[str, Any]):
+    def __init__(self, config: Dict):
+        """初始化备份管理器"""
         self.config = config
-        self.source_path = config['sillytavern_data_path']
-        self.repo_path = config['backup_repo_path']
+        
+        # Docker 环境检测
+        is_docker = os.path.exists('/.dockerenv')
+        
+        if is_docker:
+            # 容器内运行，使用固定的容器内路径
+            self.data_path = Path('/data')
+            logger.info("Docker 环境：使用容器内数据路径 /data")
+        else:
+            # 宿主机运行，使用配置的路径
+            self.data_path = Path(config['sillytavern_data_path'])
+            logger.info(f"宿主机环境：使用配置路径 {self.data_path}")
+        
+        self.repo_path = Path(config['backup_repo_path'])
         self.remote_url = config['github_remote_url']
         self.repo = None
     
