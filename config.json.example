@@ -1,0 +1,8 @@
+{
+  "sillytavern_data_path": "/var/sillytavern/data",
+  "backup_repo_path": "/var/backups/sillytavern-backup",
+  "github_remote_url": "git@github.com:username/sillytavern-backup.git",
+  "backup_time": "03:00",
+  "max_log_size_mb": 10,
+  "enable_auto_backup": true
+}
