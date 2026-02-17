@@ -380,6 +380,337 @@ def compare_diff(config):
     print("-" * 60)
     print("比较存档差异")
     print("-" * 60)
+    print()
+    print("请选择比较模式：")
+    print("  1. 历史备份 vs 当前数据")
+    print("  2. 历史备份 vs 另一个历史备份")
+    print()
+    
+    mode = input("选择模式 (1/2，或 'q' 取消): ").strip()
+    if mode == 'q':
+        return
+    
+    if mode not in ['1', '2']:
+        print("❌ 无效的选择")
+        input("按回车键继续...")
+        return
+    
+    manager = RestoreManager(config)
+    backup_manager = BackupManager(config)
+    
+    if not manager.init_repo():
+        print("❌ 无法连接到备份仓库")
+        input("按回车键继续...")
+        return
+    
+    backups = manager.list_backups(max_count=20)
+    if not backups:
+        print("❌ 没有可用的备份")
+        input("按回车键继续...")
+        return
+    
+    # 显示备份列表
+    def show_backup_list():
+        print()
+        print("序号  提交哈希   时间                    描述")
+        print("-" * 80)
+        for i, (hash_val, msg, dt) in enumerate(backups, 1):
+            first_line = msg.split('\n')[0]
+            print(f"{i:2d}.   {hash_val}    {dt.strftime('%Y-%m-%d %H:%M:%S')}  {first_line}")
+        print()
+    
+    # 选择第一个备份
+    show_backup_list()
+    while True:
+        choice = input("请选择要比较的版本（输入序号，或 'q' 取消）: ").strip()
+        if choice.lower() == 'q':
+            return
+        
+        try:
+            index1 = int(choice) - 1
+            if 0 <= index1 < len(backups):
+                break
+            else:
+                print("❌ 无效的序号")
+        except ValueError:
+            print("❌ 请输入数字")
+    
+    selected_hash1 = backups[index1][0]
+    selected_msg1 = backups[index1][1].split('\n')[0]
+    
+    # 如果是模式2，选择第二个备份
+    selected_hash2 = None
+    selected_msg2 = None
+    if mode == '2':
+        print()
+        print(f"已选择第一个版本: {selected_hash1} - {selected_msg1}")
+        print()
+        show_backup_list()
+        
+        while True:
+            choice = input("请选择第二个版本（输入序号，或 'q' 取消）: ").strip()
+            if choice.lower() == 'q':
+                return
+            
+            try:
+                index2 = int(choice) - 1
+                if 0 <= index2 < len(backups):
+                    if index2 == index1:
+                        print("❌ 不能选择相同的版本")
+                        continue
+                    break
+                else:
+                    print("❌ 无效的序号")
+            except ValueError:
+                print("❌ 请输入数字")
+        
+        selected_hash2 = backups[index2][0]
+        selected_msg2 = backups[index2][1].split('\n')[0]
+    
+    print()
+    print("正在分析差异...")
+    
+    try:
+        if mode == '1':
+            # 模式1: 备份 vs 当前数据
+            manager.repo.git.checkout(selected_hash1)
+            
+            backup_data = manager.repo_path / 'data'
+            current_data = backup_manager.data_path
+            
+            if not backup_data.exists():
+                print("❌ 备份中未找到 data 目录")
+                manager.repo.git.checkout('HEAD')
+                input("按回车键继续...")
+                return
+            
+            # 收集文件列表
+            backup_files = {}
+            current_files = {}
+            
+            for item in backup_data.rglob('*'):
+                if item.is_file():
+                    rel_path = str(item.relative_to(backup_data))
+                    backup_files[rel_path] = item.stat().st_size
+            
+            for item in current_data.rglob('*'):
+                if item.is_file():
+                    rel_path = str(item.relative_to(current_data))
+                    current_files[rel_path] = item.stat().st_size
+            
+            label_a = f"备份 {selected_hash1}"
+            label_b = "当前数据"
+            files_a = backup_files
+            files_b = current_files
+        
+        else:
+            # 模式2: 备份 vs 备份
+            manager.repo.git.checkout(selected_hash1)
+            backup_data1 = manager.repo_path / 'data'
+            
+            if not backup_data1.exists():
+                print("❌ 第一个备份中未找到 data 目录")
+                manager.repo.git.checkout('HEAD')
+                input("按回车键继续...")
+                return
+            
+            # 收集第一个备份的文件
+            backup1_files = {}
+            for item in backup_data1.rglob('*'):
+                if item.is_file():
+                    rel_path = str(item.relative_to(backup_data1))
+                    backup1_files[rel_path] = item.stat().st_size
+            
+            # 切换到第二个备份
+            manager.repo.git.checkout(selected_hash2)
+            backup_data2 = manager.repo_path / 'data'
+            
+            if not backup_data2.exists():
+                print("❌ 第二个备份中未找到 data 目录")
+                manager.repo.git.checkout('HEAD')
+                input("按回车键继续...")
+                return
+            
+            # 收集第二个备份的文件
+            backup2_files = {}
+            for item in backup_data2.rglob('*'):
+                if item.is_file():
+                    rel_path = str(item.relative_to(backup_data2))
+                    backup2_files[rel_path] = item.stat().st_size
+            
+            label_a = f"备份 {selected_hash1}"
+            label_b = f"备份 {selected_hash2}"
+            files_a = backup1_files
+            files_b = backup2_files
+        
+        # 分析差异
+        only_in_a = set(files_a.keys()) - set(files_b.keys())
+        only_in_b = set(files_b.keys()) - set(files_a.keys())
+        common_files = set(files_a.keys()) & set(files_b.keys())
+        
+        # 检查共同文件的修改
+        modified_files = []
+        for rel_path in common_files:
+            if files_a[rel_path] != files_b[rel_path]:
+                size_diff = files_b[rel_path] - files_a[rel_path]
+                modified_files.append((rel_path, files_a[rel_path], files_b[rel_path], size_diff))
+        
+        # 分类文件（聊天、角色、配置等）
+        def categorize_files(file_list):
+            chats = []
+            characters = []
+            configs = []
+            others = []
+            
+            for f in file_list:
+                if isinstance(f, tuple):
+                    f = f[0]
+                if 'chats/' in f or 'chat' in f.lower():
+                    chats.append(f)
+                elif 'characters/' in f or 'character' in f.lower():
+                    characters.append(f)
+                elif any(x in f.lower() for x in ['settings', 'config', 'preset']):
+                    configs.append(f)
+                else:
+                    others.append(f)
+            
+            return chats, characters, configs, others
+        
+        # 显示结果
+        print()
+        print("=" * 80)
+        print(f"差异分析结果：{label_a} ⟷ {label_b}")
+        print("=" * 80)
+        
+        # 仅在 A 中的文件
+        if only_in_a:
+            chats, chars, configs, others = categorize_files(only_in_a)
+            print()
+            print(f"📂 仅在 {label_a} 中存在 (共 {len(only_in_a)} 个)：")
+            
+            if chats:
+                print(f"   💬 聊天记录 ({len(chats)} 个):")
+                for f in sorted(chats)[:5]:
+                    print(f"      - {f}")
+                if len(chats) > 5:
+                    print(f"      ... 还有 {len(chats) - 5} 个")
+            
+            if chars:
+                print(f"   👤 角色卡 ({len(chars)} 个):")
+                for f in sorted(chars)[:3]:
+                    print(f"      - {f}")
+                if len(chars) > 3:
+                    print(f"      ... 还有 {len(chars) - 3} 个")
+            
+            if configs:
+                print(f"   ⚙️ 配置文件 ({len(configs)} 个):")
+                for f in sorted(configs):
+                    print(f"      - {f}")
+            
+            if others and len(others) <= 5:
+                print(f"   📄 其他文件:")
+                for f in sorted(others):
+                    print(f"      - {f}")
+        
+        # 仅在 B 中的文件
+        if only_in_b:
+            chats, chars, configs, others = categorize_files(only_in_b)
+            print()
+            print(f"📂 仅在 {label_b} 中存在 (共 {len(only_in_b)} 个)：")
+            
+            if chats:
+                print(f"   💬 聊天记录 ({len(chats)} 个):")
+                for f in sorted(chats)[:5]:
+                    print(f"      + {f}")
+                if len(chats) > 5:
+                    print(f"      ... 还有 {len(chats) - 5} 个")
+            
+            if chars:
+                print(f"   👤 角色卡 ({len(chars)} 个):")
+                for f in sorted(chars)[:3]:
+                    print(f"      + {f}")
+                if len(chars) > 3:
+                    print(f"      ... 还有 {len(chars) - 3} 个")
+            
+            if configs:
+                print(f"   ⚙️ 配置文件 ({len(configs)} 个):")
+                for f in sorted(configs):
+                    print(f"      + {f}")
+            
+            if others and len(others) <= 5:
+                print(f"   📄 其他文件:")
+                for f in sorted(others):
+                    print(f"      + {f}")
+        
+        # 已修改的文件
+        if modified_files:
+            chats, chars, configs, others = categorize_files(modified_files)
+            print()
+            print(f"🔄 已修改的文件 (共 {len(modified_files)} 个)：")
+            
+            if chats:
+                print(f"   💬 聊天记录 ({len(chats)} 个):")
+                for item in sorted(chats, key=lambda x: abs(x[3]) if isinstance(x, tuple) else x, reverse=True)[:5]:
+                    if isinstance(item, tuple):
+                        f, size_a, size_b, diff = item
+                        sign = '+' if diff > 0 else ''
+                        print(f"      ~ {f} ({size_a} → {size_b} bytes, {sign}{diff})")
+                    else:
+                        print(f"      ~ {item}")
+                if len(chats) > 5:
+                    print(f"      ... 还有 {len(chats) - 5} 个")
+            
+            if chars:
+                print(f"   👤 角色卡 ({len(chars)} 个):")
+                for item in sorted(chars)[:3]:
+                    if isinstance(item, tuple):
+                        f = item[0]
+                    else:
+                        f = item
+                    print(f"      ~ {f}")
+                if len(chars) > 3:
+                    print(f"      ... 还有 {len(chars) - 3} 个")
+            
+            if configs:
+                print(f"   ⚙️ 配置文件:")
+                for item in sorted(configs):
+                    if isinstance(item, tuple):
+                        f, size_a, size_b, diff = item
+                        sign = '+' if diff > 0 else ''
+                        print(f"      ~ {f} ({size_a} → {size_b}, {sign}{diff})")
+                    else:
+                        print(f"      ~ {item}")
+        
+        if not only_in_a and not only_in_b and not modified_files:
+            print()
+            print("✅ 两个版本完全一致")
+        
+        print()
+        print("=" * 80)
+        print()
+        print("图例：")
+        print("  - 仅在第一个版本")
+        print("  + 仅在第二个版本")
+        print("  ~ 两个版本都有但内容不同")
+        print("=" * 80)
+        
+        # 返回到最新版本
+        manager.repo.git.checkout('HEAD')
+        
+    except Exception as e:
+        print(f"❌ 比较失败: {e}")
+        try:
+            manager.repo.git.checkout('HEAD')
+        except:
+            pass
+    
+    print()
+    input("按回车键继续...")
+    """比较存档与当前数据的差异"""
+    print()
+    print("-" * 60)
+    print("比较存档差异")
+    print("-" * 60)
     
     manager = RestoreManager(config)
     backup_manager = BackupManager(config)
