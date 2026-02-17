@@ -20,5 +20,5 @@ COPY *.py .
 # 创建日志目录
 RUN mkdir -p /app/logs
 
-# 运行主程序
+# 默认运行主程序（可通过 docker exec 运行菜单）
 CMD ["python", "-u", "main.py"]

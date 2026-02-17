@@ -159,10 +159,83 @@ class BackupManager:
                 logger.info("没有变更需要提交")
                 return True
             
+            # 获取变更文件列表
+            changed_files = []
+            
+            # 修改的文件
+            for item in self.repo.index.diff("HEAD"):
+                changed_files.append(('修改', item.a_path))
+            
+            # 新增的文件
+            for item in self.repo.untracked_files:
+                changed_files.append(('新增', item))
+            
+            # 删除的文件（通过 diff 获取）
+            try:
+                diff_result = self.repo.git.diff("--name-status", "HEAD")
+                for line in diff_result.split('\n'):
+                    if line.startswith('D\t'):
+                        changed_files.append(('删除', line[2:]))
+            except:
+                pass
+            
+            # 分析变更内容
+            chat_changes = []
+            character_changes = []
+            other_changes = []
+            
+            for change_type, filepath in changed_files:
+                # 聊天记录变化
+                if 'chats/' in filepath or 'chat' in filepath.lower():
+                    # 提取角色名（通常在文件名中）
+                    filename = filepath.split('/')[-1]
+                    # 移除扩展名和日期戳
+                    name = filename.replace('.jsonl', '').replace('.json', '')
+                    chat_changes.append(f"{change_type}:{name}")
+                
+                # 角色卡变化
+                elif 'characters/' in filepath or 'character' in filepath.lower():
+                    filename = filepath.split('/')[-1]
+                    name = filename.replace('.png', '').replace('.json', '')
+                    character_changes.append(f"{change_type}:{name}")
+                
+                # 其他重要文件
+                elif any(x in filepath for x in ['settings', 'config', 'preset']):
+                    other_changes.append(filepath.split('/')[-1])
+            
+            # 构建提交消息
+            timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+            commit_msg = f"自动备份 {timestamp}"
+            
+            # 添加变更摘要
+            details = []
+            if chat_changes:
+                # 限制显示数量，避免消息过长
+                shown_chats = chat_changes[:5]
+                chat_summary = ', '.join(shown_chats)
+                if len(chat_changes) > 5:
+                    chat_summary += f" 等{len(chat_changes)}个"
+                details.append(f"聊天: {chat_summary}")
+            
+            if character_changes:
+                shown_chars = character_changes[:3]
+                char_summary = ', '.join(shown_chars)
+                if len(character_changes) > 3:
+                    char_summary += f" 等{len(character_changes)}个"
+                details.append(f"角色: {char_summary}")
+            
+            if other_changes:
+                details.append(f"配置: {', '.join(other_changes[:3])}")
+            
+            if details:
+                commit_msg += "\n\n" + '\n'.join(details)
+            
+            # 添加统计信息
+            commit_msg += f"\n\n共 {len(changed_files)} 个文件变更"
+            
             # 提交
-            commit_msg = f"自动备份 {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
             self.repo.index.commit(commit_msg)
-            logger.info(f"已提交变更: {commit_msg}")
+            logger.info(f"已提交变更: {commit_msg.split(chr(10))[0]}")  # 只记录第一行
             
             return True
         except Exception as e:
