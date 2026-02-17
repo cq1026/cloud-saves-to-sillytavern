@@ -104,14 +104,14 @@ class BackupManager:
             logger.info("开始同步文件...")
             
             # 检查源目录
-            if not self.source_path.exists():
-                raise FileNotFoundError(f"源目录不存在: {self.source_path}")
+            if not self.data_path.exists():
+                raise FileNotFoundError(f"源目录不存在: {self.data_path}")
             
             # 方案 1: 使用 rsync（如果系统有）
             if shutil.which('rsync'):
                 cmd = [
                     'rsync', '-av', '--delete',
-                    f"{self.source_path}/",
+                    f"{self.data_path}/",
                     f"{self.repo_path}/"
                 ]
                 result = subprocess.run(cmd, capture_output=True, text=True)
@@ -131,9 +131,9 @@ class BackupManager:
     def _manual_sync(self):
         """手动同步文件（当 rsync 不可用时）"""
         # 复制所有文件
-        for item in self.source_path.rglob('*'):
+        for item in self.data_path.rglob('*'):
             if item.is_file():
-                relative_path = item.relative_to(self.source_path)
+                relative_path = item.relative_to(self.data_path)
                 target = self.repo_path / relative_path
                 target.parent.mkdir(parents=True, exist_ok=True)
                 shutil.copy2(item, target)
@@ -142,7 +142,7 @@ class BackupManager:
         for item in self.repo_path.rglob('*'):
             if item.is_file() and '.git' not in item.parts:
                 relative_path = item.relative_to(self.repo_path)
-                source = self.source_path / relative_path
+                source = self.data_path / relative_path
                 if not source.exists():
                     item.unlink()
                     logger.debug(f"删除多余文件: {relative_path}")

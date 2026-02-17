@@ -92,11 +92,11 @@ class RestoreManager:
         backup_path = Path(f"/tmp/st-backup-{timestamp}")
         
         try:
-            if self.source_path.exists():
-                shutil.copytree(self.source_path, backup_path)
+            if self.data_path.exists():
+                shutil.copytree(self.data_path, backup_path)
                 logger.info(f"当前数据已备份到: {backup_path}")
             else:
-                logger.warning(f"源目录不存在，跳过备份: {self.source_path}")
+                logger.warning(f"源目录不存在，跳过备份: {self.data_path}")
             
             return backup_path
         except Exception as e:
@@ -111,25 +111,25 @@ class RestoreManager:
             logger.info(f"已检出版本: {commit_hash}")
             
             # 2. 复制文件到 SillyTavern 目录
-            if self.source_path.exists():
+            if self.data_path.exists():
                 # 删除目标目录内容（保留目录本身）
-                for item in self.source_path.iterdir():
+                for item in self.data_path.iterdir():
                     if item.is_file():
                         item.unlink()
                     elif item.is_dir():
                         shutil.rmtree(item)
             else:
-                self.source_path.mkdir(parents=True, exist_ok=True)
+                self.data_path.mkdir(parents=True, exist_ok=True)
             
             # 复制所有文件（排除 .git）
             for item in self.repo_path.rglob('*'):
                 if item.is_file() and '.git' not in item.parts:
                     relative_path = item.relative_to(self.repo_path)
-                    target = self.source_path / relative_path
+                    target = self.data_path / relative_path
                     target.parent.mkdir(parents=True, exist_ok=True)
                     shutil.copy2(item, target)
             
-            logger.info(f"文件已恢复到: {self.source_path}")
+            logger.info(f"文件已恢复到: {self.data_path}")
             
             # 3. 返回到最新版本（避免 detached HEAD）
             self.repo.git.checkout('HEAD')
