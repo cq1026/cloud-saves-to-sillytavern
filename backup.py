@@ -111,6 +111,7 @@ class BackupManager:
             if shutil.which('rsync'):
                 cmd = [
                     'rsync', '-av', '--delete',
+                    '--exclude', '.git',  # 排除 .git 目录
                     f"{self.data_path}/",
                     f"{self.repo_path}/"
                 ]
