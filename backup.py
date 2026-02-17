@@ -112,8 +112,8 @@ class BackupManager:
                 cmd = [
                     'rsync', '-av', '--delete',
                     '--exclude', '.git',  # 排除 .git 目录
-                    f"{self.data_path}/",
-                    f"{self.repo_path}/"
+                    str(self.data_path),  # 不带末尾斜杠，保留 data 文件夹
+                    str(self.repo_path) + '/'
                 ]
                 result = subprocess.run(cmd, capture_output=True, text=True)
                 if result.returncode != 0:

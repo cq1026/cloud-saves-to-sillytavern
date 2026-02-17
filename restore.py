@@ -121,10 +121,15 @@ class RestoreManager:
             else:
                 self.data_path.mkdir(parents=True, exist_ok=True)
             
-            # 复制所有文件（排除 .git）
-            for item in self.repo_path.rglob('*'):
-                if item.is_file() and '.git' not in item.parts:
-                    relative_path = item.relative_to(self.repo_path)
+            
+            # 复制所有文件（从 backup/data/ 恢复到目标）
+            backup_data_path = self.repo_path / 'data'
+            if not backup_data_path.exists():
+                raise FileNotFoundError(f"备份中未找到 data 目录: {backup_data_path}")
+            
+            for item in backup_data_path.rglob('*'):
+                if item.is_file():
+                    relative_path = item.relative_to(backup_data_path)
                     target = self.data_path / relative_path
                     target.parent.mkdir(parents=True, exist_ok=True)
                     shutil.copy2(item, target)
