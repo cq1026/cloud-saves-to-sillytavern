@@ -42,15 +42,55 @@ def manual_backup(config):
     """执行手动备份"""
     print()
     print("-" * 60)
-    print("开始手动备份...")
+    print("手动备份")
+    print("-" * 60)
+    print()
+    
+    # 询问是否自定义描述
+    use_custom = input("是否自定义备份描述？(y/n，默认n): ").strip().lower()
+    
+    custom_message = None
+    if use_custom == 'y':
+        print()
+        print("请输入备份描述（可多行，输入空行结束）：")
+        print("提示：可以写明备份原因、重要内容等")
+        print()
+        
+        lines = []
+        while True:
+            line = input()
+            if not line:
+                break
+            lines.append(line)
+        
+        if lines:
+            custom_message = '\n'.join(lines)
+            print()
+            print("您的备份描述：")
+            print("-" * 60)
+            print(custom_message)
+            print("-" * 60)
+            print()
+            
+            confirm = input("确认使用此描述？(y/n): ").strip().lower()
+            if confirm != 'y':
+                print("已取消自定义描述，将使用自动生成的描述")
+                custom_message = None
+        else:
+            print("描述为空，将使用自动生成的描述")
+    
+    print()
+    print("开始备份...")
     print("-" * 60)
     
     manager = BackupManager(config)
-    success = manager.run_backup()
+    success = manager.run_backup(custom_message)
     
     if success:
         print()
         print("✅ 备份成功！")
+        if custom_message:
+            print(f"📝 备份描述: {custom_message.split(chr(10))[0]}")
         print()
     else:
         print()
