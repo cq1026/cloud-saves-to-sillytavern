@@ -6,31 +6,155 @@
 """
 
 import sys
+import git
 from pathlib import Path
+from datetime import datetime
 
 from config import load_config, validate_config
 from backup import BackupManager
 from restore import RestoreManager
-from backup_manager import BackupManager as AdvancedManager
 from logger import setup_logger
 import logging
 
 logger = logging.getLogger(__name__)
 
 
+# ============================================================================
+# 高级备份管理工具�?
+# ============================================================================
+
+class AdvancedBackupManager:
+    """高级备份管理�?- 提供修改描述、删除备份、比较差异等功能"""
+    
+    def __init__(self, repo_path: Path, data_path: Path):
+        self.repo_path = Path(repo_path)
+        self.data_path = Path(data_path)
+        self.repo = None
+    
+    def init_repo(self):
+        """初始化仓�?""
+        if self.repo_path.exists() and (self.repo_path / '.git').exists():
+            self.repo = git.Repo(self.repo_path)
+            return True
+        return False
+    
+    def modify_commit_message(self, commit_hash: str, new_message: str) -> bool:
+        """修改提交消息（仅限最新提交）"""
+        try:
+            commit = self.repo.commit(commit_hash)
+            
+            # 只能修改最新提�?
+            if commit == self.repo.head.commit:
+                self.repo.git.commit('--amend', '-m', new_message)
+                logger.info(f"已修改最新提交的描述")
+                return True
+            else:
+                logger.error("只能修改最新提交的描述")
+                return False
+        except Exception as e:
+            logger.error(f"修改描述失败: {e}")
+            return False
+    
+    def delete_commit(self, commit_hash: str) -> bool:
+        """删除指定提交（仅限最新提交）"""
+        try:
+            commit = self.repo.commit(commit_hash)
+            
+            # 只能删除最新提�?
+            if commit == self.repo.head.commit:
+                self.repo.git.reset('--hard', 'HEAD~1')
+                logger.info(f"已删除最新提�?)
+                return True
+            else:
+                logger.error("只能删除最新提�?)
+                return False
+        except Exception as e:
+            logger.error(f"删除提交失败: {e}")
+            return False
+    
+    def compare_with_local(self, commit_hash: str = None) -> dict:
+        """比较指定提交（或最新）与当前本地数据的差异"""
+        try:
+            # 切换到指定版�?
+            if commit_hash:
+                self.repo.git.checkout(commit_hash)
+            
+            backup_data_path = self.repo_path / 'data'
+            
+            added = []      # 本地新增
+            modified = []   # 已修�?
+            deleted = []    # 本地删除
+            
+            # 检查本地文�?
+            if self.data_path.exists():
+                for item in self.data_path.rglob('*'):
+                    if item.is_file():
+                        rel_path = item.relative_to(self.data_path)
+                        backup_file = backup_data_path / rel_path
+                        
+                        if not backup_file.exists():
+                            added.append(str(rel_path))
+                        elif item.stat().st_mtime > backup_file.stat().st_mtime:
+                            modified.append(str(rel_path))
+            
+            # 检查备份中已删除的文件
+            if backup_data_path.exists():
+                for item in backup_data_path.rglob('*'):
+                    if item.is_file():
+                        rel_path = item.relative_to(backup_data_path)
+                        local_file = self.data_path / rel_path
+                        
+                        if not local_file.exists():
+                            deleted.append(str(rel_path))
+            
+            # 返回到最新版�?
+            if commit_hash:
+                self.repo.git.checkout('HEAD')
+            
+            return {
+                'added': added,
+                'modified': modified,
+                'deleted': deleted
+            }
+        except Exception as e:
+            logger.error(f"比较差异失败: {e}")
+            try:
+                self.repo.git.checkout('HEAD')
+            except:
+                pass
+            return None
+    
+    def force_push(self) -> bool:
+        """强制推送到远程（修改历史后需要）"""
+        try:
+            origin = self.repo.remote('origin')
+            origin.push(force=True)
+            logger.info("已强制推送到远程")
+            return True
+        except Exception as e:
+            logger.error(f"强制推送失�? {e}")
+            return False
+
+
+# ============================================================================
+# 菜单函数
+# ============================================================================
+
+
+
 def show_menu():
-    """显示主菜单"""
+    """显示主菜�?""
     print()
     print("=" * 70)
-    print("       SillyTavern 云备份工具 - 快捷操作菜单")
+    print("       SillyTavern 云备份工�?- 快捷操作菜单")
     print("=" * 70)
     print()
     print("  1. 执行手动备份")
-    print("  2. 列出并拉取备份版本")
+    print("  2. 列出并拉取备份版�?)
     print("  3. 修改备份描述")
     print("  4. 删除备份")
     print("  5. 比较差异")
-    print("  0. 退出")
+    print("  0. 退�?)
     print()
 
 
@@ -38,7 +162,7 @@ def manual_backup(config):
     """执行手动备份"""
     print()
     print("-" * 70)
-    print("开始手动备份...")
+    print("开始手动备�?..")
     print("-" * 70)
     
     manager = BackupManager(config)
@@ -46,18 +170,18 @@ def manual_backup(config):
     
     if success:
         print()
-        print("✅ 备份成功！")
+        print("�?备份成功�?)
         print()
     else:
         print()
-        print("❌ 备份失败，请查看日志")
+        print("�?备份失败，请查看日志")
         print()
     
     input("按回车键继续...")
 
 
 def list_and_restore(config):
-    """列出备份版本并拉取"""
+    """列出备份版本并拉�?""
     print()
     print("-" * 70)
     print("备份版本列表")
@@ -65,16 +189,16 @@ def list_and_restore(config):
     
     manager = RestoreManager(config)
     
-    # 初始化仓库
+    # 初始化仓�?
     if not manager.init_repo():
-        print("❌ 无法连接到备份仓库")
+        print("�?无法连接到备份仓�?)
         input("按回车键继续...")
         return
     
     # 列出备份
     backups = manager.list_backups(max_count=20)
     if not backups:
-        print("❌ 没有可用的备份")
+        print("�?没有可用的备�?)
         input("按回车键继续...")
         return
     
@@ -86,20 +210,20 @@ def list_and_restore(config):
         first_line = msg.split('\n')[0]
         print(f"{i:2d}.   {hash_val}    {dt.strftime('%Y-%m-%d %H:%M:%S')}  {first_line}")
         
-        # 如果有详细信息，显示在下一行
+        # 如果有详细信息，显示在下一�?
         if '\n' in msg:
             details = msg.split('\n\n')
             if len(details) > 1:
                 # 显示变更摘要（缩进）
                 for detail in details[1:]:
                     if detail.strip():
-                        print(f"       → {detail.strip()}")
+                        print(f"       �?{detail.strip()}")
         print()  # 空行分隔
     print("-" * 80)
     
     # 选择版本
     while True:
-        choice = input("请选择要拉取的版本（输入序号，或 'q' 取消）: ").strip()
+        choice = input("请选择要拉取的版本（输入序号，�?'q' 取消�? ").strip()
         if choice.lower() == 'q':
             return
         
@@ -108,58 +232,58 @@ def list_and_restore(config):
             if 0 <= index < len(backups):
                 break
             else:
-                print("❌ 无效的序号，请重新输入")
+                print("�?无效的序号，请重新输�?)
         except ValueError:
-            print("❌ 请输入数字")
+            print("�?请输入数�?)
     
     selected_hash = backups[index][0]
     selected_msg = backups[index][1]
     selected_time = backups[index][2]
     
     print()
-    print(f"您选择的版本: {selected_hash} - {selected_time.strftime('%Y-%m-%d %H:%M:%S')}")
+    print(f"您选择的版�? {selected_hash} - {selected_time.strftime('%Y-%m-%d %H:%M:%S')}")
     print(f"描述: {selected_msg}")
     print()
     
-    # 拉取到本地
-    print("正在拉取备份到 /backup/data/ ...")
+    # 拉取到本�?
+    print("正在拉取备份�?/backup/data/ ...")
     try:
-        # 检出指定版本
+        # 检出指定版�?
         manager.repo.git.checkout(selected_hash)
         
-        # 检查 data 目录是否存在
+        # 检�?data 目录是否存在
         backup_data_path = manager.repo_path / 'data'
         if backup_data_path.exists():
             print()
             print("=" * 70)
-            print("✅ 备份已拉取到容器内路径：/backup/data/")
+            print("�?备份已拉取到容器内路径：/backup/data/")
             print()
-            print("📂 在宿主机上的位置：/opt/cloud-saves/backup-repo/data/")
+            print("📂 在宿主机上的位置�?opt/cloud-saves/backup-repo/data/")
             print()
-            print("⚠️  接下来请手动操作：")
+            print("⚠️  接下来请手动操作�?)
             print("   1. 停止 SillyTavern 服务")
             print("   2. 备份当前 /opt/SillyTavern/data 目录（可选）")
-            print("   3. 复制 /opt/cloud-saves/backup-repo/data/ 的内容")
-            print("      到 /opt/SillyTavern/data/")
+            print("   3. 复制 /opt/cloud-saves/backup-repo/data/ 的内�?)
+            print("      �?/opt/SillyTavern/data/")
             print("   4. 重启 SillyTavern 服务")
             print()
-            print("命令示例：")
+            print("命令示例�?)
             print("  # 备份当前数据（可选）")
             print("  mv /opt/SillyTavern/data /opt/SillyTavern/data.backup")
             print()
-            print("  # 复制恢复的数据")
+            print("  # 复制恢复的数�?)
             print("  cp -r /opt/cloud-saves/backup-repo/data /opt/SillyTavern/")
             print("=" * 70)
         else:
             print()
-            print("❌ 备份中未找到 data 目录，可能是旧版本备份")
+            print("�?备份中未找到 data 目录，可能是旧版本备�?)
             print("   备份内容在：/opt/cloud-saves/backup-repo/")
         
-        # 返回到最新版本
+        # 返回到最新版�?
         manager.repo.git.checkout('HEAD')
         
     except Exception as e:
-        print(f"❌ 拉取失败: {e}")
+        print(f"�?拉取失败: {e}")
     
     print()
     input("按回车键继续...")
@@ -172,21 +296,21 @@ def modify_description(config):
     print("修改备份描述")
     print("-" * 70)
     
-    adv_manager = AdvancedManager(
+    adv_manager = AdvancedBackupManager(
         repo_path=config['backup_repo_path'],
         data_path=Path('/data') if Path('/.dockerenv').exists() else config['sillytavern_data_path']
     )
     
     if not adv_manager.init_repo():
-        print("❌ 无法打开备份仓库")
+        print("�?无法打开备份仓库")
         input("按回车键继续...")
         return
     
-    # 显示最新提交
+    # 显示最新提�?
     try:
         latest_commit = adv_manager.repo.head.commit
         print()
-        print(f"最新提交: {latest_commit.hexsha[:7]}")
+        print(f"最新提�? {latest_commit.hexsha[:7]}")
         print(f"时间: {latest_commit.committed_datetime.strftime('%Y-%m-%d %H:%M:%S')}")
         print(f"当前描述:")
         print("-" * 70)
@@ -194,9 +318,9 @@ def modify_description(config):
         print("-" * 70)
         print()
         
-        # 输入新描述
+        # 输入新描�?
         print("⚠️  注意：只能修改最新提交的描述")
-        print("请输入新的描述（多行，输入单独一行 'END' 结束）：")
+        print("请输入新的描述（多行，输入单独一�?'END' 结束）：")
         
         lines = []
         while True:
@@ -207,7 +331,7 @@ def modify_description(config):
         
         new_message = '\n'.join(lines)
         if not new_message.strip():
-            print("❌ 描述不能为空")
+            print("�?描述不能为空")
             input("按回车键继续...")
             return
         
@@ -217,28 +341,28 @@ def modify_description(config):
         print("-" * 70)
         print(new_message)
         print("-" * 70)
-        confirm = input("\n确认修改？(yes/no): ").strip().lower()
+        confirm = input("\n确认修改�?yes/no): ").strip().lower()
         
         if confirm in ['yes', 'y']:
             if adv_manager.modify_commit_message(latest_commit.hexsha[:7], new_message):
                 print()
-                print("✅ 描述修改成功！")
+                print("�?描述修改成功�?)
                 print()
                 print("⚠️  需要强制推送到远程")
                 push_confirm = input("是否立即推送？(yes/no): ").strip().lower()
                 
                 if push_confirm in ['yes', 'y']:
                     if adv_manager.force_push():
-                        print("✅ 已推送到远程")
+                        print("�?已推送到远程")
                     else:
-                        print("❌ 推送失败，请手动执行: git push --force")
+                        print("�?推送失败，请手动执�? git push --force")
             else:
-                print("❌ 修改失败")
+                print("�?修改失败")
         else:
-            print("已取消")
+            print("已取�?)
     
     except Exception as e:
-        print(f"❌ 操作失败: {e}")
+        print(f"�?操作失败: {e}")
     
     print()
     input("按回车键继续...")
@@ -251,28 +375,28 @@ def delete_backup(config):
     print("删除备份")
     print("-" * 70)
     
-    adv_manager = AdvancedManager(
+    adv_manager = AdvancedBackupManager(
         repo_path=config['backup_repo_path'],
         data_path=Path('/data') if Path('/.dockerenv').exists() else config['sillytavern_data_path']
     )
     
     if not adv_manager.init_repo():
-        print("❌ 无法打开备份仓库")
+        print("�?无法打开备份仓库")
         input("按回车键继续...")
         return
     
     try:
         latest_commit = adv_manager.repo.head.commit
         print()
-        print(f"将要删除的提交: {latest_commit.hexsha[:7]}")
+        print(f"将要删除的提�? {latest_commit.hexsha[:7]}")
         print(f"时间: {latest_commit.committed_datetime.strftime('%Y-%m-%d %H:%M:%S')}")
         print(f"描述:")
         print("-" * 70)
         print(latest_commit.message)
         print("-" * 70)
         print()
-        print("⚠️  警告：此操作不可撤销！")
-        print("⚠️  注意：只能删除最新提交")
+        print("⚠️  警告：此操作不可撤销�?)
+        print("⚠️  注意：只能删除最新提�?)
         print()
         
         confirm = input("确认删除？请输入 'DELETE' 确认: ").strip()
@@ -280,30 +404,30 @@ def delete_backup(config):
         if confirm == 'DELETE':
             if adv_manager.delete_commit(latest_commit.hexsha[:7]):
                 print()
-                print("✅ 本地备份已删除！")
+                print("�?本地备份已删除！")
                 print()
                 print("⚠️  需要强制推送到远程")
-                push_confirm = input("是否立即推送到远程？(yes/no): ").strip().lower()
+                push_confirm = input("是否立即推送到远程�?yes/no): ").strip().lower()
                 
                 if push_confirm in ['yes', 'y']:
                     if adv_manager.force_push():
-                        print("✅ 远程备份已删除")
+                        print("�?远程备份已删�?)
                     else:
-                        print("❌ 推送失败，请手动执行: git push --force")
+                        print("�?推送失败，请手动执�? git push --force")
             else:
-                print("❌ 删除失败")
+                print("�?删除失败")
         else:
-            print("已取消")
+            print("已取�?)
     
     except Exception as e:
-        print(f"❌ 操作失败: {e}")
+        print(f"�?操作失败: {e}")
     
     print()
     input("按回车键继续...")
 
 
 def compare_diff(config):
-    """比较云备份与本地数据的差异"""
+    """比较云备份与本地数据的差�?""
     print()
     print("-" * 70)
     print("比较差异")
@@ -312,23 +436,23 @@ def compare_diff(config):
     # 初始化恢复管理器用于列出备份
     restore_manager = RestoreManager(config)
     if not restore_manager.init_repo():
-        print("❌ 无法连接到备份仓库")
+        print("�?无法连接到备份仓�?)
         input("按回车键继续...")
         return
     
     # 列出备份供选择
     backups = restore_manager.list_backups(max_count=20)
     if not backups:
-        print("❌ 没有可用的备份")
+        print("�?没有可用的备�?)
         input("按回车键继续...")
         return
     
     print()
-    print("请选择要对比的备份版本：")
+    print("请选择要对比的备份版本�?)
     print()
     print("序号  提交哈希   时间                    描述")
     print("-" * 80)
-    print(" 0.   [最新]    当前                    对比最新备份")
+    print(" 0.   [最新]    当前                    对比最新备�?)
     for i, (hash_val, msg, dt) in enumerate(backups, 1):
         first_line = msg.split('\n')[0]
         print(f"{i:2d}.   {hash_val}    {dt.strftime('%Y-%m-%d %H:%M:%S')}  {first_line[:30]}")
@@ -336,7 +460,7 @@ def compare_diff(config):
     
     # 选择版本
     while True:
-        choice = input("\n请选择要对比的版本（输入序号，或 'q' 取消）: ").strip()
+        choice = input("\n请选择要对比的版本（输入序号，�?'q' 取消�? ").strip()
         if choice.lower() == 'q':
             return
         
@@ -344,75 +468,75 @@ def compare_diff(config):
             index = int(choice)
             if index == 0:
                 selected_hash = None
-                selected_desc = "最新备份"
+                selected_desc = "最新备�?
                 break
             elif 1 <= index <= len(backups):
                 selected_hash = backups[index - 1][0]
                 selected_desc = backups[index - 1][1].split('\n')[0]
                 break
             else:
-                print("❌ 无效的序号，请重新输入")
+                print("�?无效的序号，请重新输�?)
         except ValueError:
-            print("❌ 请输入数字")
+            print("�?请输入数�?)
     
     # 初始化高级管理器
-    adv_manager = AdvancedManager(
+    adv_manager = AdvancedBackupManager(
         repo_path=config['backup_repo_path'],
         data_path=Path('/data') if Path('/.dockerenv').exists() else config['sillytavern_data_path']
     )
     
     if not adv_manager.init_repo():
-        print("❌ 无法打开备份仓库")
+        print("�?无法打开备份仓库")
         input("按回车键继续...")
         return
     
     print()
-    print(f"正在比较 [{selected_desc}] 与当前本地数据...")
+    print(f"正在比较 [{selected_desc}] 与当前本地数�?..")
     print()
     
     diff = adv_manager.compare_with_local(selected_hash)
     
     if diff is None:
-        print("❌ 比较失败")
+        print("�?比较失败")
     else:
         added = diff['added']
         modified = diff['modified']
         deleted = diff['deleted']
         
         if not added and not modified and not deleted:
-            print("✅ 没有差异，数据一致")
+            print("�?没有差异，数据一�?)
         else:
             print("=" * 70)
-            print(f"\n📊 对比结果：")
+            print(f"\n📊 对比结果�?)
             print(f"   基准：{selected_desc}")
-            print(f"   对照：当前本地数据")
+            print(f"   对照：当前本地数�?)
             
             if added:
-                print(f"\n📄 本地新增文件 ({len(added)} 个):")
-                for f in added[:10]:  # 最多显示 10 个
+                print(f"\n📄 本地新增文件 ({len(added)} �?:")
+                for f in added[:10]:  # 最多显�?10 �?
                     print(f"  + {f}")
                 if len(added) > 10:
-                    print(f"  ... 还有 {len(added) - 10} 个")
+                    print(f"  ... 还有 {len(added) - 10} �?)
             
             if modified:
-                print(f"\n✏️  已修改文件 ({len(modified)} 个):")
+                print(f"\n✏️  已修改文�?({len(modified)} �?:")
                 for f in modified[:10]:
                     print(f"  ~ {f}")
                 if len(modified) > 10:
-                    print(f"  ... 还有 {len(modified) - 10} 个")
+                    print(f"  ... 还有 {len(modified) - 10} �?)
             
             if deleted:
-                print(f"\n🗑️  本地已删除文件 ({len(deleted)} 个):")
+                print(f"\n🗑�? 本地已删除文�?({len(deleted)} �?:")
                 for f in deleted[:10]:
                     print(f"  - {f}")
                 if len(deleted) > 10:
-                    print(f"  ... 还有 {len(deleted) - 10} 个")
+                    print(f"  ... 还有 {len(deleted) - 10} �?)
             
             print()
             print("=" * 70)
-            print(f"\n💡 提示：")
+            print(f"\n💡 提示�?)
             if added or modified:
-                print("   - 有新增或修改，可以执行手动备份同步这些变更")
+                print("   - 有新增或修改，可以执行手动备份同步这些变�?)
             if deleted:
                 print("   - 有文件被删除，可以从备份恢复")
     
@@ -421,7 +545,7 @@ def compare_diff(config):
 
 
 def main():
-    """主函数"""
+    """主函�?""
     setup_logger()
     
     try:
@@ -433,7 +557,7 @@ def main():
             logger.error("配置验证失败")
             return 1
         
-        # 主循环
+        # 主循�?
         while True:
             show_menu()
             choice = input("请选择操作 (0-5): ").strip()
@@ -450,15 +574,15 @@ def main():
                 compare_diff(config)
             elif choice == '0':
                 print()
-                print("再见！")
+                print("再见�?)
                 return 0
             else:
                 print()
-                print("❌ 无效的选择，请输入 0-5")
+                print("�?无效的选择，请输入 0-5")
                 input("按回车键继续...")
     
     except KeyboardInterrupt:
-        print("\n\n已取消")
+        print("\n\n已取�?)
         return 0
     except Exception as e:
         logger.error(f"程序异常: {e}", exc_info=True)
