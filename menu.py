@@ -534,6 +534,7 @@ def main():
         while True:
             show_menu()
             choice = input("请选择操作 (0-5): ").strip()
+            choice = input("请选择操作 (0-6): ").strip()
             
             if choice == '1':
                 manual_backup(config)
@@ -545,6 +546,10 @@ def main():
                 delete_backup(config)
             elif choice == '5':
                 compare_diff(config)
+            elif choice == '6':
+                # Placeholder for new functionality
+                print("新功能待实现...")
+                input("按回车键继续...")
             elif choice == '0':
                 print()
                 print("再见！")
